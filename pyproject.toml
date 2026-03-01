@@ -1,0 +1,21 @@
+[project]
+name = "ctfile-downloader"
+version = "0.1.0"
+description = "城通网盘通用下载器"
+readme = "README.md"
+authors = [
+    { name = "Hakurouken", email = "Ticshot@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28",
+    "rich>=13.0",
+    "click>=8.1",
+]
+
+[project.scripts]
+ctdl = "ctfile_downloader.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
