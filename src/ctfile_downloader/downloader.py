@@ -1,4 +1,3 @@
-# src/ctfile_downloader/downloader.py
 from __future__ import annotations
 
 import time
@@ -35,7 +34,7 @@ def download_file(
     dest: Path,
     client: httpx.Client | None = None,
 ) -> bool:
-    """下载单个文件，支持断点续传。返回是否成功。"""
+    """下载单个文件，支持断点续传。"""
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     headers: dict[str, str] = {}
@@ -52,7 +51,6 @@ def download_file(
     try:
         with client.stream("GET", url, headers=headers) as resp:
             if resp.status_code == 200 and initial_size > 0:
-                # Server doesn't support resume, start over
                 initial_size = 0
             elif resp.status_code == 416:
                 console.print(f"  [dim]文件可能已完成，跳过[/dim]")
@@ -94,19 +92,15 @@ def get_download_url_with_retry(
     file_info: dict,
     max_retries: int = 5,
 ) -> str | None:
-    """获取下载链接，遇到验证码自动重试。"""
-    userid = file_info["userid"]
-    file_id = file_info["file_id"]
-    file_chk = file_info["file_chk"]
-
+    """获取下载链接，遇到验证码自动重试。需要重新获取 file_info 因为 verifycode 有时效性。"""
     for attempt in range(1, max_retries + 1):
         try:
-            return api.get_download_url(userid, file_id, file_chk)
+            return api.get_download_url(file_info)
         except CaptchaError:
             if attempt < max_retries:
                 wait = 10 + attempt * 5
                 console.print(
-                    f"  [yellow]可能触发验证码，等待 {wait}s 后重试 ({attempt}/{max_retries})[/yellow]"
+                    f"  [yellow]获取下载链接失败，等待 {wait}s 后重试 ({attempt}/{max_retries})[/yellow]"
                 )
                 time.sleep(wait)
             else:
@@ -121,7 +115,7 @@ def batch_download(
     file_tree: list[tuple[str, FileEntry]],
     output_dir: Path,
 ) -> DownloadStats:
-    """批量下载文件树中的所有文件。"""
+    """批量下载。"""
     stats = DownloadStats()
     total = len(file_tree)
 

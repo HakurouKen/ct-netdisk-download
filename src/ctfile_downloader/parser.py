@@ -12,15 +12,18 @@ class ShareInfo:
     password: str
     origin: str
     link_type: str  # "folder" or "file"
-    api_path: str = ""  # "f" (new 3-part) or "file" (old 2-part), only for file links
+    fk: str = ""  # folder key from URL
+    api_path: str = ""  # "f" or "file", only for single file links
 
 
 @dataclass
 class FileEntry:
     name: str
-    code: str
+    code: str  # tempdir-XXX for files, empty for folders
     is_folder: bool
     folder_id: str = ""
+    fk: str = ""  # folder key for subfolders
+    size: str = ""  # file size string e.g. "3.60 MB"
 
 
 def parse_share_url(url: str) -> ShareInfo:
@@ -35,18 +38,18 @@ def parse_share_url(url: str) -> ShareInfo:
 
     if link_prefix == "d":
         folder_id = qs.get("d", [""])[0]
-        password = qs.get("fk", [""])[0]
+        password = qs.get("fk", qs.get("p", [""]))[0]  # fk might be folder key, not password
+        fk = qs.get("fk", [""])[0]
         return ShareInfo(
             share_code=share_code,
             folder_id=folder_id,
-            password=password,
+            password="",  # password is provided separately via CLI
             origin=origin,
             link_type="folder",
+            fk=fk,
         )
     else:
-        # /f/ single file link
         password = qs.get("p", [""])[0]
-        # 3-part code = new format (path=f), 2-part = old format (path=file)
         parts = share_code.split("-")
         api_path = "f" if len(parts) >= 3 else "file"
         return ShareInfo(
@@ -68,23 +71,33 @@ def parse_file_list(aa_data: list[list[str]]) -> list[FileEntry]:
             continue
 
         html = row[1]
+        size = row[2].strip() if len(row) > 2 else ""
 
-        # 子文件夹：含 load_subdir()
-        subdir_match = re.search(r"load_subdir\(['\"](\d+)['\"]\)", html)
+        # 子文件夹: load_subdir(ID, 'FK')
+        subdir_match = re.search(r"load_subdir\((\d+),\s*['\"]([^'\"]+)['\"]\)", html)
         if subdir_match:
             folder_id = subdir_match.group(1)
+            fk = subdir_match.group(2)
             name_match = re.search(r">([^<]+)</a>", html)
             name = name_match.group(1).strip() if name_match else "unknown_folder"
-            entries.append(FileEntry(name=name, code="", is_folder=True, folder_id=folder_id))
+            entries.append(FileEntry(name=name, code="", is_folder=True, folder_id=folder_id, fk=fk))
             continue
 
-        # 普通文件
+        # 文件: href="#/f/tempdir-XXX" or href="/f/CODE"
+        tempdir_match = re.search(r'href="[^"]*?#/f/(tempdir-[^"]+)"', html)
+        if tempdir_match:
+            code = tempdir_match.group(1)
+            name_match = re.search(r">([^<]+)</a>", html)
+            name = name_match.group(1).strip() if name_match else "unknown_file"
+            entries.append(FileEntry(name=name, code=code, is_folder=False, size=size))
+            continue
+
+        # Legacy format: href="/f/CODE"
         file_match = re.search(r'href="[^"]*?/f/([^"]+)"', html)
         name_match = re.search(r">([^<]+)</a>", html)
-
         if file_match and name_match:
             code = file_match.group(1)
             name = name_match.group(1).strip()
-            entries.append(FileEntry(name=name, code=code, is_folder=False))
+            entries.append(FileEntry(name=name, code=code, is_folder=False, size=size))
 
     return entries

@@ -1,4 +1,3 @@
-# src/ctfile_downloader/main.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,6 +15,13 @@ console = Console()
 
 @click.command()
 @click.argument("url")
+@click.option(
+    "-p",
+    "--password",
+    type=str,
+    default="",
+    help="共享文件夹/文件的访问密码",
+)
 @click.option(
     "-o",
     "--output",
@@ -35,7 +41,7 @@ console = Console()
     default=8.0,
     help="请求间最大延迟秒数（默认: 8.0）",
 )
-def cli(url: str, output: str, delay_min: float, delay_max: float) -> None:
+def cli(url: str, password: str, output: str, delay_min: float, delay_max: float) -> None:
     """城通网盘通用下载器
 
     URL: 城通网盘共享链接（支持文件夹 /d/ 和单文件 /f/）
@@ -52,7 +58,8 @@ def cli(url: str, output: str, delay_min: float, delay_max: float) -> None:
     console.print(f"[bold]下载目录:[/bold] {output_dir.resolve()}")
     console.print()
 
-    api = CtfileAPI(share_info, delay=(delay_min, delay_max))
+    api = CtfileAPI(share_info, password=password, delay=(delay_min, delay_max))
+    api.page_url = url
 
     try:
         if share_info.link_type == "folder":
@@ -76,8 +83,9 @@ def _download_folder(api: CtfileAPI, output_dir: Path) -> None:
     table = Table(title="文件列表", show_lines=False)
     table.add_column("#", style="dim", width=5)
     table.add_column("路径", style="cyan")
-    for i, (path, _entry) in enumerate(file_tree, 1):
-        table.add_row(str(i), path)
+    table.add_column("大小", style="green", width=12)
+    for i, (path, entry) in enumerate(file_tree, 1):
+        table.add_row(str(i), path, entry.size)
     console.print(table)
     console.print()
 
