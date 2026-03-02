@@ -28,6 +28,10 @@ class RateLimitError(CtfileAPIError):
     """请求频率过高，被服务器限制"""
 
 
+class LinkExpiredError(CtfileAPIError):
+    """文件临时链接已过期，需要重新从文件夹获取"""
+
+
 class CtfileAPI:
     def __init__(self, share_info: ShareInfo, password: str = "", delay: tuple[float, float] = (3.0, 8.0)):
         self.share_info = share_info
@@ -130,6 +134,13 @@ class CtfileAPI:
         if code == 503:
             raise CtfileAPIError("文件已过期或被删除")
         if code == 404:
+            file_msg = data.get("file", {})
+            if isinstance(file_msg, dict):
+                msg = file_msg.get("message", "")
+            else:
+                msg = str(file_msg)
+            if "超时" in msg or "重新" in msg:
+                raise LinkExpiredError(f"文件链接已过期: {msg}")
             raise CtfileAPIError(f"文件不存在 (API响应: {data})")
         if "file" not in data:
             raise CtfileAPIError(f"获取文件信息失败: code={code}, data={data}")
