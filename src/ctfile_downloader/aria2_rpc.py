@@ -63,6 +63,7 @@ class Aria2RpcClient:
             except subprocess.TimeoutExpired:
                 self._process.kill()
                 self._process.wait()
+            self._process = None
         self._http.close()
 
     def _call(self, method: str, params: list | None = None):

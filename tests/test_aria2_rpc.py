@@ -94,7 +94,8 @@ class TestAria2RpcClientLifecycle:
 
     def test_stop_sends_shutdown_and_waits(self):
         client = Aria2RpcClient.__new__(Aria2RpcClient)
-        client._process = MagicMock()
+        mock_process = MagicMock()
+        client._process = mock_process
         client._http = MagicMock()
         client._http.post.return_value = _mock_rpc_response("OK")
         client.rpc_url = "http://127.0.0.1:16800/jsonrpc"
@@ -105,7 +106,9 @@ class TestAria2RpcClientLifecycle:
         payload = client._http.post.call_args[1]["json"]
         assert payload["method"] == "aria2.shutdown"
         # 应等待进程退出
-        client._process.wait.assert_called_once()
+        mock_process.wait.assert_called_once()
+        # 应将 _process 设为 None
+        assert client._process is None
         # 应关闭 HTTP client
         client._http.close.assert_called_once()
 
