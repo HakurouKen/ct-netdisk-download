@@ -13,6 +13,14 @@ from ctfile_downloader.parser import parse_share_url
 console = Console()
 
 
+def _count_root_items(file_tree: list[tuple[str, object]]) -> int:
+    """统计文件树中不同的根级条目（文件或一级文件夹）数量。"""
+    roots = set()
+    for rel_path, _ in file_tree:
+        roots.add(rel_path.split("/")[0])
+    return len(roots)
+
+
 @click.command()
 @click.argument("url")
 @click.option(
