@@ -98,6 +98,17 @@ def _download_folder(api: CtfileAPI, output_dir: Path, output_explicit: bool = T
     console.print(table)
     console.print()
 
+    # 未显式指定输出目录且根级条目 > 1 时，警告用户
+    root_count = _count_root_items(file_tree)
+    if not output_explicit and root_count > 1:
+        console.print(
+            f"[bold yellow]⚠ 该文件夹包含 {root_count} 个根目录项，"
+            f"将直接下载到当前目录 ({output_dir})[/bold yellow]"
+        )
+        if not click.confirm("确定继续？"):
+            console.print("[yellow]已取消。[/yellow]")
+            return
+
     if not click.confirm(f"开始下载 {len(file_tree)} 个文件？"):
         console.print("[yellow]已取消。[/yellow]")
         return

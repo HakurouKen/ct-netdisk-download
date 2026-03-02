@@ -83,3 +83,111 @@ def test_explicit_output_is_respected(tmp_path):
 
     called_output_dir = mock_dl.call_args[0][2]
     assert called_output_dir == target.resolve()
+
+
+def test_folder_multi_root_prompts_confirmation(tmp_path, monkeypatch):
+    """文件夹有多个根项且未指定 -o 时，应额外提示确认。"""
+    monkeypatch.chdir(tmp_path)
+    from ctfile_downloader.parser import FileEntry
+
+    runner = CliRunner()
+    fake_tree = [
+        ("file1.txt", FileEntry(name="file1.txt", code="t1", is_folder=False)),
+        ("dir1/file2.txt", FileEntry(name="file2.txt", code="t2", is_folder=False)),
+    ]
+
+    with patch("ctfile_downloader.main.parse_share_url") as mock_parse, \
+         patch("ctfile_downloader.main.CtfileAPI") as mock_api_cls, \
+         patch("ctfile_downloader.main.batch_download") as mock_batch:
+
+        mock_info = MagicMock()
+        mock_info.link_type = "folder"
+        mock_info.share_code = "abc"
+        mock_info.folder_id = "123"
+        mock_parse.return_value = mock_info
+
+        mock_api = MagicMock()
+        mock_api.walk_folder.return_value = fake_tree
+        mock_api_cls.return_value = mock_api
+
+        # 用户在第一个确认（多根项警告）处回答 "n"
+        result = runner.invoke(cli, ["https://url.cn/d/abc"], input="n\n")
+
+    # 应该看到多根项警告文字
+    assert "2" in result.output  # 包含根项数量
+    # batch_download 不应该被调用（用户取消了）
+    mock_batch.assert_not_called()
+
+
+def test_folder_single_root_no_extra_prompt(tmp_path, monkeypatch):
+    """文件夹只有 1 个根项时，不应出现额外确认。"""
+    monkeypatch.chdir(tmp_path)
+    from ctfile_downloader.parser import FileEntry
+
+    runner = CliRunner()
+    fake_tree = [
+        ("docs/a.txt", FileEntry(name="a.txt", code="t1", is_folder=False)),
+        ("docs/b.txt", FileEntry(name="b.txt", code="t2", is_folder=False)),
+    ]
+
+    mock_stats = MagicMock()
+    mock_stats.success = 2
+    mock_stats.failed = 0
+    mock_stats.skipped = 0
+    mock_stats.failed_files = []
+
+    with patch("ctfile_downloader.main.parse_share_url") as mock_parse, \
+         patch("ctfile_downloader.main.CtfileAPI") as mock_api_cls, \
+         patch("ctfile_downloader.main.batch_download", return_value=mock_stats) as mock_batch:
+
+        mock_info = MagicMock()
+        mock_info.link_type = "folder"
+        mock_info.share_code = "abc"
+        mock_info.folder_id = "123"
+        mock_parse.return_value = mock_info
+
+        mock_api = MagicMock()
+        mock_api.walk_folder.return_value = fake_tree
+        mock_api_cls.return_value = mock_api
+
+        # 只需要回答一次 "y"（标准的"开始下载？"确认）
+        result = runner.invoke(cli, ["https://url.cn/d/abc"], input="y\n")
+
+    # batch_download 应该被调用
+    mock_batch.assert_called_once()
+
+
+def test_folder_multi_root_skipped_with_explicit_output(tmp_path):
+    """显式指定 -o 时，即使多根项也不应出现额外确认。"""
+    from ctfile_downloader.parser import FileEntry
+
+    runner = CliRunner()
+    fake_tree = [
+        ("file1.txt", FileEntry(name="file1.txt", code="t1", is_folder=False)),
+        ("file2.txt", FileEntry(name="file2.txt", code="t2", is_folder=False)),
+    ]
+
+    mock_stats = MagicMock()
+    mock_stats.success = 2
+    mock_stats.failed = 0
+    mock_stats.skipped = 0
+    mock_stats.failed_files = []
+
+    with patch("ctfile_downloader.main.parse_share_url") as mock_parse, \
+         patch("ctfile_downloader.main.CtfileAPI") as mock_api_cls, \
+         patch("ctfile_downloader.main.batch_download", return_value=mock_stats) as mock_batch:
+
+        mock_info = MagicMock()
+        mock_info.link_type = "folder"
+        mock_info.share_code = "abc"
+        mock_info.folder_id = "123"
+        mock_parse.return_value = mock_info
+
+        mock_api = MagicMock()
+        mock_api.walk_folder.return_value = fake_tree
+        mock_api_cls.return_value = mock_api
+
+        # 只需要回答标准确认 "y"
+        result = runner.invoke(cli, ["https://url.cn/d/abc", "-o", str(tmp_path)], input="y\n")
+
+    mock_batch.assert_called_once()
