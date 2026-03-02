@@ -111,19 +111,13 @@ def _download_folder(api: CtfileAPI, output_dir: Path) -> None:
 def _download_single_file(api: CtfileAPI, share_info, output_dir: Path) -> None:
     """下载单个共享文件。"""
     console.print("[bold]正在获取文件信息...[/bold]")
-    try:
-        file_info = api.get_file_info(share_info.share_code)
-    except Exception as e:
-        console.print(f"[red]获取文件信息失败: {e}[/red]")
+
+    download_url, file_info = get_download_url_with_retry(api, share_info.share_code)
+    if not download_url or not file_info:
+        console.print("[red]获取下载链接失败[/red]")
         return
 
     file_name = file_info.get("file_name", "unknown")
-    console.print(f"  文件: {file_name} ({file_info.get('file_size', '?')})")
-
-    download_url = get_download_url_with_retry(api, file_info)
-    if not download_url:
-        return
-
     dest = output_dir / file_name
     success = download_file(download_url, dest)
 

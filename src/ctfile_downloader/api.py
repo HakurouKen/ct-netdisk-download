@@ -24,11 +24,16 @@ class CaptchaError(CtfileAPIError):
     """需要验证码"""
 
 
+class RateLimitError(CtfileAPIError):
+    """请求频率过高，被服务器限制"""
+
+
 class CtfileAPI:
     def __init__(self, share_info: ShareInfo, password: str = "", delay: tuple[float, float] = (3.0, 8.0)):
         self.share_info = share_info
         self.password = password
         self.delay = delay
+        self._extra_delay: float = 0.0
         self.page_url = ""  # set later for ref param
 
         cookies = {}
@@ -47,8 +52,22 @@ class CtfileAPI:
         )
 
     def _throttle(self) -> None:
-        delay = random.uniform(*self.delay)
+        delay = random.uniform(*self.delay) + self._extra_delay
         time.sleep(delay)
+
+    def increase_delay(self, extra: float) -> None:
+        """增加额外延迟（限频时调用）。"""
+        self._extra_delay = extra
+
+    def reset_delay(self) -> None:
+        """重置额外延迟。"""
+        self._extra_delay = 0.0
+
+    def _check_rate_limit(self, resp: httpx.Response) -> None:
+        """检查 HTTP 429 限频。"""
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After", "?")
+            raise RateLimitError(f"HTTP 429 限频 (Retry-After: {retry_after})")
 
     def get_folder_info(self, folder_id: str = "", fk: str = "") -> dict:
         """获取文件夹信息。"""
@@ -69,6 +88,7 @@ class CtfileAPI:
             "url": self.page_url,
         }
         resp = self.client.get(f"{API_BASE}/getdir.php", params=params)
+        self._check_rate_limit(resp)
         resp.raise_for_status()
         data = resp.json()
 
@@ -84,6 +104,7 @@ class CtfileAPI:
         self._throttle()
         url = f"{API_BASE}{list_url}" if list_url.startswith("/") else list_url
         resp = self.client.get(url)
+        self._check_rate_limit(resp)
         resp.raise_for_status()
         data = resp.json()
         aa_data = data.get("aaData", [])
@@ -101,15 +122,17 @@ class CtfileAPI:
             "url": self.page_url,
         }
         resp = self.client.get(f"{API_BASE}/getfile.php", params=params)
+        self._check_rate_limit(resp)
         resp.raise_for_status()
         data = resp.json()
 
-        if data.get("code") == 503:
+        code = data.get("code")
+        if code == 503:
             raise CtfileAPIError("文件已过期或被删除")
-        if data.get("code") == 404:
-            raise CtfileAPIError("文件不存在")
+        if code == 404:
+            raise CtfileAPIError(f"文件不存在 (API响应: {data})")
         if "file" not in data:
-            raise CtfileAPIError(f"获取文件信息失败: {data}")
+            raise CtfileAPIError(f"获取文件信息失败: code={code}, data={data}")
         return data["file"]
 
     def get_download_url(self, file_info: dict) -> str:
@@ -129,11 +152,12 @@ class CtfileAPI:
             "rd": str(random.random()),
         }
         resp = self.client.get(f"{API_BASE}/get_file_url.php", params=params)
+        self._check_rate_limit(resp)
         resp.raise_for_status()
         data = resp.json()
 
         if data.get("code") != 200:
-            raise CaptchaError(f"获取下载链接失败: code={data.get('code')}")
+            raise CaptchaError(f"获取下载链接失败: code={data.get('code')}, data={data}")
 
         downurl = data.get("downurl", "")
         if not downurl:
