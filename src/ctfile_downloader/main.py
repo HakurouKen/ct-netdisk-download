@@ -34,8 +34,8 @@ def _count_root_items(file_tree: list[tuple[str, object]]) -> int:
     "-o",
     "--output",
     type=click.Path(),
-    default="downloads",
-    help="下载目录（默认: downloads）",
+    default=None,
+    help="下载目录（默认: 当前目录）",
 )
 @click.option(
     "--delay-min",
@@ -54,7 +54,8 @@ def cli(url: str, password: str, output: str, delay_min: float, delay_max: float
 
     URL: 城通网盘共享链接（支持文件夹 /d/ 和单文件 /f/）
     """
-    output_dir = Path(output)
+    output_explicit = output is not None
+    output_dir = Path(output).resolve() if output_explicit else Path(".").resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     share_info = parse_share_url(url)
@@ -71,14 +72,14 @@ def cli(url: str, password: str, output: str, delay_min: float, delay_max: float
 
     try:
         if share_info.link_type == "folder":
-            _download_folder(api, output_dir)
+            _download_folder(api, output_dir, output_explicit)
         else:
             _download_single_file(api, share_info, output_dir)
     finally:
         api.close()
 
 
-def _download_folder(api: CtfileAPI, output_dir: Path) -> None:
+def _download_folder(api: CtfileAPI, output_dir: Path, output_explicit: bool = True) -> None:
     """下载整个共享文件夹。"""
     console.print("[bold]正在扫描文件列表...[/bold]")
     file_tree = api.walk_folder()
