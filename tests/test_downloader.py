@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from ctfile_downloader.api import CtfileAPIError, LinkExpiredError
-from ctfile_downloader.downloader import batch_download
+from ctfile_downloader.downloader import batch_download, download_file_aria2c
 from ctfile_downloader.parser import FileEntry
 
 
@@ -148,3 +148,69 @@ def test_expired_link_refresh_does_not_trigger_rate_limit_pause(tmp_path):
     # Verify we never called the long rate-limit sleep (30+ seconds)
     for call in mock_sleep.call_args_list:
         assert call[0][0] < 30, f"Unexpected long sleep: {call[0][0]}s — likely false rate-limit detection"
+
+
+class TestDownloadFileAria2c:
+    """测试 aria2c RPC 下载函数。"""
+
+    def test_success_returns_true(self, tmp_path):
+        """下载完成时返回 True。"""
+        dest = tmp_path / "test.zip"
+        mock_aria2c = MagicMock()
+        mock_aria2c.add_uri.return_value = "gid-001"
+        # 第一次轮询: active, 第二次: complete
+        mock_aria2c.tell_status.side_effect = [
+            {"status": "active", "totalLength": "1000", "completedLength": "500", "downloadSpeed": "100"},
+            {"status": "complete", "totalLength": "1000", "completedLength": "1000", "downloadSpeed": "0"},
+        ]
+
+        result = download_file_aria2c("https://example.com/test.zip", dest, mock_aria2c)
+
+        assert result is True
+        mock_aria2c.add_uri.assert_called_once_with("https://example.com/test.zip", dest.parent, dest.name)
+
+    def test_error_returns_false(self, tmp_path):
+        """下载出错时返回 False。"""
+        dest = tmp_path / "test.zip"
+        mock_aria2c = MagicMock()
+        mock_aria2c.add_uri.return_value = "gid-002"
+        mock_aria2c.tell_status.return_value = {
+            "status": "error", "totalLength": "0", "completedLength": "0",
+            "downloadSpeed": "0", "errorCode": "1", "errorMessage": "network error",
+        }
+
+        result = download_file_aria2c("https://example.com/test.zip", dest, mock_aria2c)
+
+        assert result is False
+
+    def test_creates_parent_dirs(self, tmp_path):
+        """下载前应创建父目录。"""
+        dest = tmp_path / "sub" / "deep" / "test.zip"
+        mock_aria2c = MagicMock()
+        mock_aria2c.add_uri.return_value = "gid-003"
+        mock_aria2c.tell_status.return_value = {
+            "status": "complete", "totalLength": "100", "completedLength": "100", "downloadSpeed": "0",
+        }
+
+        download_file_aria2c("https://example.com/test.zip", dest, mock_aria2c)
+
+        assert dest.parent.exists()
+
+    def test_polls_until_complete(self, tmp_path):
+        """应持续轮询直到下载完成。"""
+        dest = tmp_path / "test.zip"
+        mock_aria2c = MagicMock()
+        mock_aria2c.add_uri.return_value = "gid-004"
+        # 模拟 3 次 active 后 complete
+        mock_aria2c.tell_status.side_effect = [
+            {"status": "waiting", "totalLength": "0", "completedLength": "0", "downloadSpeed": "0"},
+            {"status": "active", "totalLength": "1000", "completedLength": "200", "downloadSpeed": "100"},
+            {"status": "active", "totalLength": "1000", "completedLength": "800", "downloadSpeed": "200"},
+            {"status": "complete", "totalLength": "1000", "completedLength": "1000", "downloadSpeed": "0"},
+        ]
+
+        with patch("ctfile_downloader.downloader.time.sleep"):
+            result = download_file_aria2c("https://example.com/test.zip", dest, mock_aria2c)
+
+        assert result is True
+        assert mock_aria2c.tell_status.call_count == 4

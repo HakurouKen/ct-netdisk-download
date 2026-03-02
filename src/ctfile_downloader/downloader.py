@@ -16,6 +16,7 @@ from rich.progress import (
 )
 
 from ctfile_downloader.api import CaptchaError, CtfileAPI, CtfileAPIError, LinkExpiredError, RateLimitError
+from ctfile_downloader.aria2_rpc import Aria2RpcClient
 from ctfile_downloader.parser import FileEntry
 
 console = Console()
@@ -85,6 +86,58 @@ def download_file(
     finally:
         if own_client:
             client.close()
+
+
+def download_file_aria2c(
+    url: str,
+    dest: Path,
+    aria2c: Aria2RpcClient,
+) -> bool:
+    """使用 aria2c JSON-RPC 下载单个文件，通过轮询状态驱动 Rich 进度条。"""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        gid = aria2c.add_uri(url, dest.parent, dest.name)
+    except RuntimeError as e:
+        console.print(f"  [red]aria2c 添加下载失败: {e}[/red]")
+        return False
+
+    with Progress(
+        TextColumn("[bold blue]{task.fields[filename]}"),
+        BarColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            "downloading",
+            total=None,
+            completed=0,
+            filename=dest.name[:30],
+        )
+
+        while True:
+            try:
+                status = aria2c.tell_status(gid)
+            except RuntimeError as e:
+                console.print(f"  [red]aria2c 状态查询失败: {e}[/red]")
+                return False
+
+            state = status["status"]
+            total = int(status.get("totalLength", 0))
+            completed = int(status.get("completedLength", 0))
+
+            if state == "complete":
+                progress.update(task, completed=total, total=total or None)
+                return True
+            elif state == "error":
+                msg = status.get("errorMessage", "未知错误")
+                console.print(f"  [red]aria2c 下载错误: {msg}[/red]")
+                return False
+
+            progress.update(task, completed=completed, total=total or None)
+            time.sleep(0.5)
 
 
 def get_download_url_with_retry(
