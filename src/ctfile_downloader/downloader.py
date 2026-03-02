@@ -211,6 +211,7 @@ def batch_download(
     api: CtfileAPI,
     file_tree: list[tuple[str, FileEntry]],
     output_dir: Path,
+    aria2c: Aria2RpcClient | None = None,
 ) -> DownloadStats:
     """批量下载，带连续失败检测和自适应限频处理。"""
     stats = DownloadStats()
@@ -244,7 +245,10 @@ def batch_download(
                 continue
 
             download_url, file_info = result
-            success = download_file(download_url, dest)
+            if aria2c:
+                success = download_file_aria2c(download_url, dest, aria2c)
+            else:
+                success = download_file(download_url, dest)
             if success:
                 stats.success += 1
                 if consecutive_errors > 0:
@@ -279,7 +283,10 @@ def batch_download(
                     continue
 
                 download_url, file_info = result
-                success = download_file(download_url, dest)
+                if aria2c:
+                    success = download_file_aria2c(download_url, dest, aria2c)
+                else:
+                    success = download_file(download_url, dest)
                 if success:
                     stats.success += 1
                     if consecutive_errors > 0:

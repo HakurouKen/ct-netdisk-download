@@ -214,3 +214,89 @@ class TestDownloadFileAria2c:
 
         assert result is True
         assert mock_aria2c.tell_status.call_count == 4
+
+
+class TestBatchDownloadAria2c:
+    """测试 batch_download 的 aria2c 集成。"""
+
+    def test_uses_aria2c_when_client_provided(self, tmp_path):
+        """传入 aria2c 客户端时应调用 download_file_aria2c。"""
+        api = _make_mock_api()
+        entry = FileEntry(
+            name="test.zip", code="tempdir-OK", is_folder=False,
+            parent_folder_id="123", parent_fk="abc",
+        )
+        file_tree = [("test.zip", entry)]
+
+        api.get_file_info.return_value = {
+            "userid": 1, "file_id": 1, "file_chk": "chk",
+            "file_name": "test.zip", "file_size": "10 MB",
+            "verifycode": "v", "start_time": 0, "wait_seconds": 0,
+        }
+        api.get_download_url.return_value = "https://cdn.example.com/test.zip"
+
+        mock_aria2c = MagicMock()
+        with patch("ctfile_downloader.downloader.download_file_aria2c", return_value=True) as mock_dl_aria2c, \
+             patch("ctfile_downloader.downloader.download_file") as mock_dl_builtin:
+            stats = batch_download(api, file_tree, tmp_path, aria2c=mock_aria2c)
+
+        mock_dl_aria2c.assert_called_once()
+        mock_dl_builtin.assert_not_called()
+        assert stats.success == 1
+
+    def test_uses_builtin_when_no_aria2c(self, tmp_path):
+        """不传 aria2c 时应使用内置 download_file。"""
+        api = _make_mock_api()
+        entry = FileEntry(
+            name="test.zip", code="tempdir-OK", is_folder=False,
+            parent_folder_id="123", parent_fk="abc",
+        )
+        file_tree = [("test.zip", entry)]
+
+        api.get_file_info.return_value = {
+            "userid": 1, "file_id": 1, "file_chk": "chk",
+            "file_name": "test.zip", "file_size": "10 MB",
+            "verifycode": "v", "start_time": 0, "wait_seconds": 0,
+        }
+        api.get_download_url.return_value = "https://cdn.example.com/test.zip"
+
+        with patch("ctfile_downloader.downloader.download_file", return_value=True) as mock_dl_builtin, \
+             patch("ctfile_downloader.downloader.download_file_aria2c") as mock_dl_aria2c:
+            stats = batch_download(api, file_tree, tmp_path)
+
+        mock_dl_builtin.assert_called_once()
+        mock_dl_aria2c.assert_not_called()
+        assert stats.success == 1
+
+    def test_aria2c_in_link_expired_retry(self, tmp_path):
+        """LinkExpiredError 重试时也应使用 aria2c。"""
+        api = _make_mock_api()
+        entry = FileEntry(
+            name="test.zip", code="tempdir-OLD", is_folder=False,
+            parent_folder_id="123", parent_fk="abc",
+        )
+        file_tree = [("test.zip", entry)]
+
+        def side_effect_file_info(code):
+            if code == "tempdir-OLD":
+                raise LinkExpiredError("文件链接已过期")
+            return {
+                "userid": 1, "file_id": 1, "file_chk": "chk",
+                "file_name": "test.zip", "file_size": "10 MB",
+                "verifycode": "v", "start_time": 0, "wait_seconds": 0,
+            }
+        api.get_file_info.side_effect = side_effect_file_info
+        api.get_download_url.return_value = "https://cdn.example.com/test.zip"
+        api.get_folder_info.return_value = {"code": 200, "file": {"url": "/list"}}
+        api.get_file_list.return_value = [
+            FileEntry(name="test.zip", code="tempdir-NEW", is_folder=False),
+        ]
+
+        mock_aria2c = MagicMock()
+        with patch("ctfile_downloader.downloader.download_file_aria2c", return_value=True) as mock_dl_aria2c, \
+             patch("ctfile_downloader.downloader.download_file") as mock_dl_builtin:
+            stats = batch_download(api, file_tree, tmp_path, aria2c=mock_aria2c)
+
+        mock_dl_aria2c.assert_called_once()
+        mock_dl_builtin.assert_not_called()
+        assert stats.success == 1
