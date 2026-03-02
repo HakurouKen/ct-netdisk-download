@@ -58,13 +58,7 @@ def _count_root_items(file_tree: list[tuple[str, object]]) -> int:
     default=False,
     help="使用 aria2c 进行多线程下载（需要系统已安装 aria2c）",
 )
-@click.option(
-    "--threads",
-    type=int,
-    default=4,
-    help="aria2c 每个文件的连接数（默认: 4，仅在 --aria2c 启用时有效）",
-)
-def cli(url: str, password: str, output: str | None, delay_min: float, delay_max: float, use_aria2c: bool, threads: int) -> None:
+def cli(url: str, password: str, output: str | None, delay_min: float, delay_max: float, use_aria2c: bool) -> None:
     """城通网盘通用下载器
 
     URL: 城通网盘共享链接（支持文件夹 /d/ 和单文件 /f/）
@@ -88,9 +82,9 @@ def cli(url: str, password: str, output: str | None, delay_min: float, delay_max
             console.print("[red]错误: --aria2c 需要系统已安装 aria2c，但未在 PATH 中找到。[/red]")
             console.print("[dim]安装方式: brew install aria2 (macOS) 或 apt install aria2 (Linux)[/dim]")
             raise SystemExit(1)
-        aria2c_client = Aria2RpcClient(threads=threads)
+        aria2c_client = Aria2RpcClient()
         aria2c_client.start()
-        console.print(f"[bold]aria2c:[/bold] 已启动 RPC 守护进程 (线程数: {threads})")
+        console.print("[bold]aria2c:[/bold] 已启动 RPC 守护进程")
 
     api = CtfileAPI(share_info, password=password, delay=(delay_min, delay_max))
     api.page_url = url
