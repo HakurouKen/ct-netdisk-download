@@ -47,7 +47,7 @@ class Aria2RpcClient:
             try:
                 self._call("aria2.getVersion")
                 return
-            except (httpx.ConnectError, httpx.ReadError, OSError):
+            except (httpx.HTTPError, OSError, RuntimeError):
                 time.sleep(0.1)
         raise RuntimeError("aria2c RPC 启动超时")
 
@@ -75,6 +75,7 @@ class Aria2RpcClient:
             "params": params or [],
         }
         resp = self._http.post(self.rpc_url, json=payload)
+        resp.raise_for_status()
         data = resp.json()
         if "error" in data:
             raise RuntimeError(f"aria2c RPC 错误: {data['error']}")
