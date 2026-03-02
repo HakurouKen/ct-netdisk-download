@@ -49,7 +49,7 @@ def _count_root_items(file_tree: list[tuple[str, object]]) -> int:
     default=8.0,
     help="请求间最大延迟秒数（默认: 8.0）",
 )
-def cli(url: str, password: str, output: str, delay_min: float, delay_max: float) -> None:
+def cli(url: str, password: str, output: str | None, delay_min: float, delay_max: float) -> None:
     """城通网盘通用下载器
 
     URL: 城通网盘共享链接（支持文件夹 /d/ 和单文件 /f/）

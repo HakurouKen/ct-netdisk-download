@@ -82,4 +82,4 @@ def test_explicit_output_is_respected(tmp_path):
         result = runner.invoke(cli, ["https://url.cn/f/abc", "-o", str(target)])
 
     called_output_dir = mock_dl.call_args[0][2]
-    assert called_output_dir == target
+    assert called_output_dir == target.resolve()
