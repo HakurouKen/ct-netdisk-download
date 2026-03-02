@@ -108,3 +108,43 @@ def test_batch_download_handles_refresh_failure(tmp_path):
     assert stats.failed == 1
     assert stats.success == 0
     assert "test.zip" in stats.failed_files
+
+
+def test_expired_link_refresh_does_not_trigger_rate_limit_pause(tmp_path):
+    """Successful refresh + retry should reset consecutive_errors, not trigger rate-limit pauses."""
+    api = _make_mock_api()
+
+    entries = [
+        FileEntry(name=f"file{i}.zip", code=f"tempdir-OLD{i}", is_folder=False,
+                  parent_folder_id="123", parent_fk="abc")
+        for i in range(5)
+    ]
+    file_tree = [(f"file{i}.zip", entries[i]) for i in range(5)]
+
+    # All old codes expire, all new codes work
+    expired_codes = {f"tempdir-OLD{i}" for i in range(5)}
+    def side_effect_file_info(code):
+        if code in expired_codes:
+            raise LinkExpiredError("文件链接已过期")
+        return {
+            "userid": 1, "file_id": 1, "file_chk": "chk",
+            "file_name": "test.zip", "file_size": "10 MB",
+            "verifycode": "v", "start_time": 0, "wait_seconds": 0,
+        }
+    api.get_file_info.side_effect = side_effect_file_info
+    api.get_download_url.return_value = "https://cdn.example.com/file.zip"
+    api.get_folder_info.return_value = {"code": 200, "file": {"url": "/list"}}
+    api.get_file_list.return_value = [
+        FileEntry(name=f"file{i}.zip", code=f"tempdir-NEW{i}", is_folder=False)
+        for i in range(5)
+    ]
+
+    import time
+    with patch("ctfile_downloader.downloader.download_file", return_value=True), \
+         patch.object(time, "sleep", wraps=time.sleep) as mock_sleep:
+        stats = batch_download(api, file_tree, tmp_path)
+
+    assert stats.success == 5
+    # Verify we never called the long rate-limit sleep (30+ seconds)
+    for call in mock_sleep.call_args_list:
+        assert call[0][0] < 30, f"Unexpected long sleep: {call[0][0]}s — likely false rate-limit detection"
