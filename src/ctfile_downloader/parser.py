@@ -24,6 +24,8 @@ class FileEntry:
     folder_id: str = ""
     fk: str = ""  # folder key for subfolders
     size: str = ""  # file size string e.g. "3.60 MB"
+    parent_folder_id: str = ""  # folder this file belongs to
+    parent_fk: str = ""  # folder key of parent folder
 
 
 def parse_share_url(url: str) -> ShareInfo:

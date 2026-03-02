@@ -178,6 +178,9 @@ class CtfileAPI:
 
     def walk_folder(self, folder_id: str = "", fk: str = "", path: str = "") -> list[tuple[str, FileEntry]]:
         """递归遍历文件夹。"""
+        actual_folder_id = folder_id or self.share_info.folder_id
+        actual_fk = fk or self.share_info.fk
+
         folder_info = self.get_folder_info(folder_id, fk)
         list_url = folder_info["file"]["url"]
         entries = self.get_file_list(list_url)
@@ -189,6 +192,8 @@ class CtfileAPI:
                 sub_results = self.walk_folder(entry.folder_id, entry.fk, entry_path)
                 results.extend(sub_results)
             else:
+                entry.parent_folder_id = actual_folder_id
+                entry.parent_fk = actual_fk
                 results.append((entry_path, entry))
 
         return results

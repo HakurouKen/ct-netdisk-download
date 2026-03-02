@@ -109,3 +109,20 @@ def test_parse_file_list_mixed():
     assert entries[1].is_folder is False
     assert entries[1].code == "tempdir-ABCDEF123456"
     assert entries[1].size == "10 MB"
+
+
+def test_file_entry_has_parent_folder_fields():
+    """FileEntry should support parent_folder_id and parent_fk fields."""
+    entry = FileEntry(
+        name="test.zip", code="tempdir-ABC", is_folder=False,
+        parent_folder_id="12345", parent_fk="abc123",
+    )
+    assert entry.parent_folder_id == "12345"
+    assert entry.parent_fk == "abc123"
+
+
+def test_file_entry_parent_fields_default_empty():
+    """parent_folder_id and parent_fk should default to empty strings."""
+    entry = FileEntry(name="test.zip", code="tempdir-ABC", is_folder=False)
+    assert entry.parent_folder_id == ""
+    assert entry.parent_fk == ""
