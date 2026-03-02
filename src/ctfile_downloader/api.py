@@ -198,5 +198,15 @@ class CtfileAPI:
 
         return results
 
+    def refresh_file_code(self, entry: FileEntry) -> str | None:
+        """重新获取文件的 tempdir code（当旧 code 过期时调用）。"""
+        folder_info = self.get_folder_info(entry.parent_folder_id, entry.parent_fk)
+        list_url = folder_info["file"]["url"]
+        fresh_entries = self.get_file_list(list_url)
+        for e in fresh_entries:
+            if not e.is_folder and e.name == entry.name:
+                return e.code
+        return None
+
     def close(self) -> None:
         self.client.close()
