@@ -193,3 +193,98 @@ def test_folder_multi_root_skipped_with_explicit_output(tmp_path):
         result = runner.invoke(cli, ["https://url.cn/d/abc", "-o", str(tmp_path)], input="y\n")
 
     mock_batch.assert_called_once()
+
+
+def test_aria2c_flag_passed_to_single_file(tmp_path, monkeypatch):
+    """--aria2c 标志应透传到 _download_single_file。"""
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    with patch("ctfile_downloader.main.parse_share_url") as mock_parse, \
+         patch("ctfile_downloader.main.CtfileAPI") as mock_api_cls, \
+         patch("ctfile_downloader.main._download_single_file") as mock_dl, \
+         patch("ctfile_downloader.main.Aria2RpcClient") as mock_rpc_cls, \
+         patch("ctfile_downloader.main.shutil.which", return_value="/usr/bin/aria2c"):
+
+        mock_info = MagicMock()
+        mock_info.link_type = "file"
+        mock_info.share_code = "abc"
+        mock_info.folder_id = None
+        mock_parse.return_value = mock_info
+
+        mock_api = MagicMock()
+        mock_api_cls.return_value = mock_api
+
+        mock_rpc = MagicMock()
+        mock_rpc_cls.return_value = mock_rpc
+
+        result = runner.invoke(cli, ["https://url.cn/f/abc", "--aria2c"])
+
+    # _download_single_file 应通过 keyword arg 接收 aria2c 客户端
+    call_kwargs = mock_dl.call_args[1]
+    assert call_kwargs["aria2c"] is mock_rpc
+
+
+def test_aria2c_threads_override(tmp_path, monkeypatch):
+    """--threads 应传递给 Aria2RpcClient。"""
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    with patch("ctfile_downloader.main.parse_share_url") as mock_parse, \
+         patch("ctfile_downloader.main.CtfileAPI") as mock_api_cls, \
+         patch("ctfile_downloader.main._download_single_file"), \
+         patch("ctfile_downloader.main.Aria2RpcClient") as mock_rpc_cls, \
+         patch("ctfile_downloader.main.shutil.which", return_value="/usr/bin/aria2c"):
+
+        mock_info = MagicMock()
+        mock_info.link_type = "file"
+        mock_info.share_code = "abc"
+        mock_info.folder_id = None
+        mock_parse.return_value = mock_info
+
+        mock_api = MagicMock()
+        mock_api_cls.return_value = mock_api
+
+        mock_rpc = MagicMock()
+        mock_rpc_cls.return_value = mock_rpc
+
+        result = runner.invoke(cli, ["https://url.cn/f/abc", "--aria2c", "--threads", "8"])
+
+    # Aria2RpcClient 应以 threads=8 初始化
+    mock_rpc_cls.assert_called_once_with(threads=8)
+
+
+def test_no_aria2c_passes_none(tmp_path, monkeypatch):
+    """不使用 --aria2c 时，aria2c 应为 None。"""
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    with patch("ctfile_downloader.main.parse_share_url") as mock_parse, \
+         patch("ctfile_downloader.main.CtfileAPI") as mock_api_cls, \
+         patch("ctfile_downloader.main._download_single_file") as mock_dl:
+
+        mock_info = MagicMock()
+        mock_info.link_type = "file"
+        mock_info.share_code = "abc"
+        mock_info.folder_id = None
+        mock_parse.return_value = mock_info
+
+        mock_api = MagicMock()
+        mock_api_cls.return_value = mock_api
+
+        result = runner.invoke(cli, ["https://url.cn/f/abc"])
+
+    call_kwargs = mock_dl.call_args[1]
+    assert call_kwargs["aria2c"] is None
+
+
+def test_aria2c_not_installed_exits_with_error(tmp_path, monkeypatch):
+    """--aria2c 但 aria2c 未安装时应报错退出。"""
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    with patch("ctfile_downloader.main.shutil.which", return_value=None):
+        result = runner.invoke(cli, ["https://url.cn/f/abc", "--aria2c"])
+
+    assert result.exit_code != 0
+    assert "aria2c" in result.output
