@@ -114,7 +114,7 @@ def test_folder_multi_root_prompts_confirmation(tmp_path, monkeypatch):
         result = runner.invoke(cli, ["https://url.cn/d/abc"], input="n\n")
 
     # 应该看到多根项警告文字
-    assert "2" in result.output  # 包含根项数量
+    assert "根目录项" in result.output
     # batch_download 不应该被调用（用户取消了）
     mock_batch.assert_not_called()
 
@@ -153,6 +153,8 @@ def test_folder_single_root_no_extra_prompt(tmp_path, monkeypatch):
         # 只需要回答一次 "y"（标准的"开始下载？"确认）
         result = runner.invoke(cli, ["https://url.cn/d/abc"], input="y\n")
 
+    # 不应出现多根项警告
+    assert "根目录项" not in result.output
     # batch_download 应该被调用
     mock_batch.assert_called_once()
 
