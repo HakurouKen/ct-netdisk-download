@@ -1,7 +1,6 @@
 from unittest.mock import MagicMock, patch
-from pathlib import Path
 
-from ctfile_downloader.api import LinkExpiredError, CtfileAPIError
+from ctfile_downloader.api import CtfileAPIError, LinkExpiredError
 from ctfile_downloader.downloader import batch_download
 from ctfile_downloader.parser import FileEntry
 
@@ -10,7 +9,6 @@ def _make_mock_api():
     api = MagicMock()
     api.get_file_info = MagicMock()
     api.get_download_url = MagicMock()
-    api.refresh_file_code = MagicMock()
     return api
 
 
@@ -90,3 +88,23 @@ def test_batch_download_refreshes_all_entries_in_same_folder(tmp_path):
     # Verify codes were updated
     for i in range(3):
         assert entries[i].code == f"tempdir-NEW{i}"
+
+
+def test_batch_download_handles_refresh_failure(tmp_path):
+    """When folder refresh fails, the file should be counted as failed and continue."""
+    api = _make_mock_api()
+    entry = FileEntry(
+        name="test.zip", code="tempdir-OLD", is_folder=False,
+        parent_folder_id="123", parent_fk="abc",
+    )
+    file_tree = [("test.zip", entry)]
+
+    api.get_file_info.side_effect = LinkExpiredError("文件链接已过期")
+    # Folder refresh fails
+    api.get_folder_info.side_effect = CtfileAPIError("刷新文件夹失败")
+
+    stats = batch_download(api, file_tree, tmp_path)
+
+    assert stats.failed == 1
+    assert stats.success == 0
+    assert "test.zip" in stats.failed_files
