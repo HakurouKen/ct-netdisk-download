@@ -15,7 +15,7 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 
-from ctfile_downloader.api import CaptchaError, CtfileAPI, CtfileAPIError, RateLimitError
+from ctfile_downloader.api import CaptchaError, CtfileAPI, CtfileAPIError, LinkExpiredError, RateLimitError
 from ctfile_downloader.parser import FileEntry
 
 console = Console()
@@ -127,6 +127,33 @@ def get_download_url_with_retry(
 _CONSECUTIVE_FAIL_THRESHOLD = 3
 
 
+def _refresh_folder_entries(
+    api: CtfileAPI,
+    file_tree: list[tuple[str, FileEntry]],
+    start_index: int,
+    folder_id: str,
+    fk: str,
+) -> int:
+    """重新获取文件夹列表，批量更新所有来自该文件夹的待下载文件的 code。
+
+    Returns: 更新的条目数量。
+    """
+    folder_info = api.get_folder_info(folder_id, fk)
+    list_url = folder_info["file"]["url"]
+    fresh_entries = api.get_file_list(list_url)
+
+    fresh_codes = {e.name: e.code for e in fresh_entries if not e.is_folder}
+
+    updated = 0
+    for idx in range(start_index, len(file_tree)):
+        _, entry = file_tree[idx]
+        if entry.parent_folder_id == folder_id and entry.parent_fk == fk:
+            if entry.name in fresh_codes:
+                entry.code = fresh_codes[entry.name]
+                updated += 1
+    return updated
+
+
 def batch_download(
     api: CtfileAPI,
     file_tree: list[tuple[str, FileEntry]],
@@ -156,21 +183,61 @@ def batch_download(
             api.increase_delay(10.0)
 
         try:
-            download_url, file_info = get_download_url_with_retry(api, entry.code)
-            if not download_url:
+            result = get_download_url_with_retry(api, entry.code)
+            if not result[0]:
                 stats.failed += 1
                 stats.failed_files.append(rel_path)
                 consecutive_errors += 1
                 continue
 
+            download_url, file_info = result
             success = download_file(download_url, dest)
             if success:
                 stats.success += 1
-                # 成功时逐步恢复延迟
                 if consecutive_errors > 0:
                     consecutive_errors = 0
                     api.reset_delay()
             else:
+                stats.failed += 1
+                stats.failed_files.append(rel_path)
+                consecutive_errors += 1
+
+        except LinkExpiredError:
+            console.print(f"  [yellow]文件码已过期，正在刷新文件夹列表...[/yellow]")
+            try:
+                refreshed = _refresh_folder_entries(
+                    api, file_tree, i - 1, entry.parent_folder_id, entry.parent_fk,
+                )
+                console.print(f"  [green]已刷新 {refreshed} 个文件码[/green]")
+            except CtfileAPIError as refresh_err:
+                console.print(f"  [red]刷新文件夹失败: {refresh_err}[/red]")
+                stats.failed += 1
+                stats.failed_files.append(rel_path)
+                consecutive_errors += 1
+                continue
+
+            # 用刷新后的 code 重试当前文件
+            try:
+                result = get_download_url_with_retry(api, entry.code)
+                if not result[0]:
+                    stats.failed += 1
+                    stats.failed_files.append(rel_path)
+                    consecutive_errors += 1
+                    continue
+
+                download_url, file_info = result
+                success = download_file(download_url, dest)
+                if success:
+                    stats.success += 1
+                    if consecutive_errors > 0:
+                        consecutive_errors = 0
+                        api.reset_delay()
+                else:
+                    stats.failed += 1
+                    stats.failed_files.append(rel_path)
+                    consecutive_errors += 1
+            except CtfileAPIError as e:
+                console.print(f"  [red]刷新后仍然失败: {e}[/red]")
                 stats.failed += 1
                 stats.failed_files.append(rel_path)
                 consecutive_errors += 1
