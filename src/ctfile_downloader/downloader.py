@@ -10,16 +10,33 @@ from rich.progress import (
     BarColumn,
     DownloadColumn,
     Progress,
+    ProgressColumn,
+    Task as RichTask,
     TextColumn,
     TimeRemainingColumn,
     TransferSpeedColumn,
 )
+from rich.text import Text
 
 from ctfile_downloader.api import CaptchaError, CtfileAPI, CtfileAPIError, LinkExpiredError, RateLimitError
 from ctfile_downloader.aria2_rpc import Aria2RpcClient
 from ctfile_downloader.parser import FileEntry
 
 console = Console()
+
+_time_remaining = TimeRemainingColumn()
+
+
+class StatusTimeColumn(ProgressColumn):
+    """下载中显示剩余时间，完成显示 ✓，失败显示 ✗。"""
+
+    def render(self, task: RichTask) -> Text:
+        status = task.fields.get("status")
+        if status == "done":
+            return Text("✓", style="bold green")
+        if status == "failed":
+            return Text("✗", style="bold red")
+        return _time_remaining.render(task)
 
 
 @dataclass
@@ -65,7 +82,7 @@ def download_file(
                 BarColumn(),
                 DownloadColumn(),
                 TransferSpeedColumn(),
-                TimeRemainingColumn(),
+                StatusTimeColumn(),
                 console=console,
             ) as progress:
                 task = progress.add_task(
@@ -74,10 +91,15 @@ def download_file(
                     completed=initial_size,
                     filename=dest.name[:30],
                 )
-                with open(dest, mode) as f:
-                    for chunk in resp.iter_bytes(chunk_size=8192):
-                        f.write(chunk)
-                        progress.update(task, advance=len(chunk))
+                try:
+                    with open(dest, mode) as f:
+                        for chunk in resp.iter_bytes(chunk_size=8192):
+                            f.write(chunk)
+                            progress.update(task, advance=len(chunk))
+                    progress.update(task, status="done")
+                except (httpx.HTTPError, OSError):
+                    progress.update(task, status="failed")
+                    raise
 
         return True
     except (httpx.HTTPError, OSError) as e:
@@ -129,9 +151,10 @@ def download_file_aria2c(
             completed = int(status.get("completedLength", 0))
 
             if state == "complete":
-                progress.update(task, completed=total, total=total or None)
+                progress.update(task, completed=total, total=total or None, status="done")
                 return True
             elif state == "error":
+                progress.update(task, status="failed")
                 msg = status.get("errorMessage", "未知错误")
                 console.print(f"  [red]aria2c 下载错误: {msg}[/red]")
                 return False
